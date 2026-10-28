@@ -179,22 +179,25 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 	}
 }
 
-async function getDirectChildPages(settings, parentId) {
-	const children = [];
-	let start = 0;
-	for (;;) {
-		const result = await confluenceRequest(
-			settings,
-			`rest/api/content/${parentId}/child/page?limit=${CHILD_PAGE_LIMIT}&start=${start}`,
-		);
-		const pageResults = Array.isArray(result.results) ? result.results : [];
-		children.push(...pageResults);
-		if (pageResults.length < CHILD_PAGE_LIMIT) return children;
-		start += pageResults.length;
-	}
+function getCurrentConfluenceUser(settings) {
+	return confluenceRequest(settings, "rest/api/user/current");
 }
 
-async function createPageCopy(settings, parentId, spaceKey, title, bodyValue) {
+function getConfluencePage(settings, contentId, expand) {
+	return confluenceRequest(
+		settings,
+		`rest/api/content/${pageId(String(contentId), "Confluence page ID")}?expand=${encodeURIComponent(expand)}`,
+	);
+}
+
+function getConfluenceChildPageBatch(settings, parentId, start) {
+	return confluenceRequest(
+		settings,
+		`rest/api/content/${pageId(String(parentId), "Parent page ID")}/child/page?limit=${CHILD_PAGE_LIMIT}&start=${start}`,
+	);
+}
+
+function createConfluencePage(settings, parentId, spaceKey, title, bodyValue) {
 	return confluenceRequest(settings, "rest/api/content/", {
 		method: "POST",
 		body: JSON.stringify({
@@ -212,6 +215,18 @@ async function createPageCopy(settings, parentId, spaceKey, title, bodyValue) {
 	});
 }
 
+async function getDirectChildPages(settings, parentId) {
+	const children = [];
+	let start = 0;
+	for (;;) {
+		const result = await getConfluenceChildPageBatch(settings, parentId, start);
+		const pageResults = Array.isArray(result.results) ? result.results : [];
+		children.push(...pageResults);
+		if (pageResults.length < CHILD_PAGE_LIMIT) return children;
+		start += pageResults.length;
+	}
+}
+
 async function copyChildPages(settings, sourceParentId, destinationParentId, spaceKey, replaceFrom, replaceTo, state, depth = 1) {
 	if (depth > 50) throw new Error("Child page nesting exceeds the 50-level limit.");
 	const children = await getDirectChildPages(settings, sourceParentId);
@@ -223,18 +238,93 @@ async function copyChildPages(settings, sourceParentId, destinationParentId, spa
 		}
 		state.visited.add(childId);
 
-		const sourcePage = await confluenceRequest(settings, `rest/api/content/${childId}?expand=body.storage`);
+		const sourcePage = await getConfluencePage(settings, childId, "body.storage");
 		if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
 			throw new Error(`Confluence did not return storage-format content for child page ${childId}.`);
 		}
 		const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
 		if (!title.trim()) throw new Error(`Title replacement left child page ${childId} empty.`);
-		const copiedPage = await createPageCopy(settings, destinationParentId, spaceKey, title, sourcePage.body.storage.value);
+		const copiedPage = await createConfluencePage(settings, destinationParentId, spaceKey, title, sourcePage.body.storage.value);
 		const copiedId = pageId(String(copiedPage.id), "Copied child page ID");
 		state.created += 1;
 		await copyChildPages(settings, childId, copiedId, spaceKey, replaceFrom, replaceTo, state, depth + 1);
 	}
 }
+
+async function testConnection(settings) {
+	const currentUser = await getCurrentConfluenceUser(settings);
+	const displayName = currentUser.displayName || currentUser.username || currentUser.accountId;
+	if (!displayName) throw new Error("Confluence connected but did not return a user name.");
+	return { displayName };
+}
+
+async function checkPages(settings, body) {
+	const sourceId = pageId(body.sourceId, "Source page ID");
+	const destinationId = pageId(body.destinationId, "Destination page ID");
+	const [sourcePage, destinationPage] = await Promise.all([
+		getConfluencePage(settings, sourceId, "title"),
+		getConfluencePage(settings, destinationId, "title"),
+	]);
+	if (!sourcePage.title || !destinationPage.title) {
+		throw new Error("Confluence did not return both page titles.");
+	}
+	return {
+		sourceTitle: sourcePage.title,
+		destinationTitle: destinationPage.title,
+	};
+}
+
+async function copyPage(settings, body) {
+	const sourceId = pageId(body.sourceId, "Source page ID");
+	const destinationId = pageId(body.destinationId, "Destination page ID");
+	const [sourcePage, destinationPage] = await Promise.all([
+		getConfluencePage(settings, sourceId, "space,body.storage"),
+		getConfluencePage(settings, destinationId, "space,title"),
+	]);
+	if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
+		throw new Error("Confluence did not return source page storage-format content.");
+	}
+	if (!destinationPage.space?.key) {
+		throw new Error("Confluence did not return the destination page's space.");
+	}
+
+	const replaceFrom = typeof body.replaceFrom === "string" ? body.replaceFrom : "";
+	const replaceTo = typeof body.replaceTo === "string" ? body.replaceTo : "";
+	const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
+	if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
+
+	const copiedPage = await createConfluencePage(settings, destinationId, destinationPage.space.key, title, sourcePage.body.storage.value);
+	const copiedRootId = pageId(String(copiedPage.id), "Copied page ID");
+	const state = { created: 1, visited: new Set([sourceId]) };
+	if (body.copyChildren === true) {
+		try {
+			await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, replaceFrom, replaceTo, state);
+		} catch (error) {
+			throw new Error(`The main page was copied, but child copying stopped after ${state.created - 1} child pages: ${error.message}`);
+		}
+	}
+
+	const webui = copiedPage._links?.webui;
+	const webUrl = typeof webui === "string"
+		? webui.startsWith("http")
+			? webui
+			: `${settings.baseUrl}${webui.startsWith("/") ? webui : `/${webui}`}`
+		: "";
+	return {
+		id: copiedRootId,
+		title,
+		copiedChildCount: state.created - 1,
+		sourceTitle: sourcePage.title,
+		destinationTitle: destinationPage.title,
+		webUrl,
+	};
+}
+
+const confluenceActions = new Map([
+	["testConnection", testConnection],
+	["checkPages", checkPages],
+	["copyPage", copyPage],
+]);
 
 async function handleConfluenceApi(request, response) {
 	if (!isLocalApiRequest(request)) {
@@ -250,78 +340,12 @@ async function handleConfluenceApi(request, response) {
 	try {
 		const body = await readJsonBody(request);
 		const settings = getConfluenceSettings(body);
-		if (body.action === "testConnection") {
-			const currentUser = await confluenceRequest(settings, "rest/api/user/current");
-			const displayName = currentUser.displayName || currentUser.username || currentUser.accountId;
-			if (!displayName) throw new Error("Confluence connected but did not return a user name.");
-			sendJson(response, 200, { displayName });
+		const action = confluenceActions.get(body.action);
+		if (!action) {
+			sendJson(response, 400, { error: "Unsupported Confluence action." });
 			return;
 		}
-
-		if (body.action === "checkPages") {
-			const sourceId = pageId(body.sourceId, "Source page ID");
-			const destinationId = pageId(body.destinationId, "Destination page ID");
-			const [sourcePage, destinationPage] = await Promise.all([
-				confluenceRequest(settings, `rest/api/content/${sourceId}?expand=title`),
-				confluenceRequest(settings, `rest/api/content/${destinationId}?expand=title`),
-			]);
-			if (!sourcePage.title || !destinationPage.title) {
-				throw new Error("Confluence did not return both page titles.");
-			}
-			sendJson(response, 200, {
-				sourceTitle: sourcePage.title,
-				destinationTitle: destinationPage.title,
-			});
-			return;
-		}
-
-		if (body.action === "copyPage") {
-			const sourceId = pageId(body.sourceId, "Source page ID");
-			const destinationId = pageId(body.destinationId, "Destination page ID");
-			const [sourcePage, destinationPage] = await Promise.all([
-				confluenceRequest(settings, `rest/api/content/${sourceId}?expand=space,body.storage`),
-				confluenceRequest(settings, `rest/api/content/${destinationId}?expand=space,title`),
-			]);
-			if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
-				throw new Error("Confluence did not return source page storage-format content.");
-			}
-			if (!destinationPage.space?.key) {
-				throw new Error("Confluence did not return the destination page's space.");
-			}
-
-			const replaceFrom = typeof body.replaceFrom === "string" ? body.replaceFrom : "";
-			const replaceTo = typeof body.replaceTo === "string" ? body.replaceTo : "";
-			const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
-			if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
-
-			const copiedPage = await createPageCopy(settings, destinationId, destinationPage.space.key, title, sourcePage.body.storage.value);
-			const copiedRootId = pageId(String(copiedPage.id), "Copied page ID");
-			const state = { created: 1, visited: new Set([sourceId]) };
-			if (body.copyChildren === true) {
-				try {
-					await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, replaceFrom, replaceTo, state);
-				} catch (error) {
-					throw new Error(`The main page was copied, but child copying stopped after ${state.created - 1} child pages: ${error.message}`);
-				}
-			}
-			const webui = copiedPage._links?.webui;
-			const webUrl = typeof webui === "string"
-				? webui.startsWith("http")
-					? webui
-					: `${settings.baseUrl}${webui.startsWith("/") ? webui : `/${webui}`}`
-				: "";
-			sendJson(response, 200, {
-				id: copiedRootId,
-				title,
-				copiedChildCount: state.created - 1,
-				sourceTitle: sourcePage.title,
-				destinationTitle: destinationPage.title,
-				webUrl,
-			});
-			return;
-		}
-
-		sendJson(response, 400, { error: "Unsupported Confluence action." });
+		sendJson(response, 200, await action(settings, body));
 	} catch (error) {
 		sendJson(response, error.statusCode || 502, { error: error.message || "Confluence request failed." });
 	}
