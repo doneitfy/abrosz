@@ -1,4 +1,5 @@
 const SETTINGS_KEY = "page-relay-settings";
+const CONNECTION_DETAILS_KEY = "page-relay-connection-details";
 const FONT_SIZE_KEY = "page-relay-font-size";
 const COPY_INPUTS_KEY = "page-relay-copy-inputs";
 
@@ -70,6 +71,25 @@ function readSettings() {
 		return JSON.parse(sessionStorage.getItem(SETTINGS_KEY) || "null");
 	} catch {
 		return null;
+	}
+}
+
+function readConnectionDetails() {
+	try {
+		return JSON.parse(localStorage.getItem(CONNECTION_DETAILS_KEY) || "null");
+	} catch {
+		return null;
+	}
+}
+
+function saveConnectionDetails(settings) {
+	try {
+		localStorage.setItem(CONNECTION_DETAILS_KEY, JSON.stringify({
+			baseUrl: settings.baseUrl,
+			email: settings.email,
+		}));
+	} catch {
+		return;
 	}
 }
 
@@ -178,11 +198,11 @@ function showAuthFields() {
 
 function populateSettings() {
 	const settings = readSettings();
-	if (!settings) return;
-	document.getElementById("base-url").value = settings.baseUrl || "";
-	document.getElementById("auth-mode").value = settings.authMode || "cloud";
-	document.getElementById("account-email").value = settings.email || "";
-	document.getElementById("api-token").value = settings.token || "";
+	const connectionDetails = readConnectionDetails();
+	document.getElementById("base-url").value = settings?.baseUrl || connectionDetails?.baseUrl || "";
+	document.getElementById("auth-mode").value = settings?.authMode || "cloud";
+	document.getElementById("account-email").value = settings?.email || connectionDetails?.email || "";
+	document.getElementById("api-token").value = settings?.token || "";
 	showAuthFields();
 	updateConnectionLabel();
 }
@@ -279,6 +299,7 @@ settingsForm.addEventListener("submit", (event) => {
 		if (!settings.token) throw new Error("Enter an API token.");
 		if (settings.authMode === "cloud" && !settings.email) throw new Error("Enter the Atlassian account email for this token.");
 		sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+		saveConnectionDetails(settings);
 		settingsFeedback.textContent = "Settings saved for this browser session.";
 		updateConnectionLabel();
 	} catch (error) {
