@@ -165,20 +165,13 @@ async function checkPages() {
 	checkPagesButton.textContent = "Checking...";
 	pageCheckFeedback.textContent = "Fetching page titles...";
 	try {
-		const [sourceResponse, destinationResponse] = await Promise.all([
-			confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(sourceId)}?expand=title`),
-			confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(destinationId)}?expand=title`),
-		]);
-		const [sourcePage, destinationPage] = await Promise.all([
-			sourceResponse.json(),
-			destinationResponse.json(),
-		]);
-		if (!sourcePage.title || !destinationPage.title) {
+		const pages = await localApiRequest("checkPages", settings, { sourceId, destinationId });
+		if (!pages.sourceTitle || !pages.destinationTitle) {
 			throw new Error("Confluence did not return both page titles.");
 		}
-		currentSourceTitle = sourcePage.title;
-		sourcePageTitle.textContent = sourcePage.title;
-		destinationPageTitle.textContent = destinationPage.title;
+		currentSourceTitle = pages.sourceTitle;
+		sourcePageTitle.textContent = pages.sourceTitle;
+		destinationPageTitle.textContent = pages.destinationTitle;
 		pageCheckFeedback.textContent = "Both pages found.";
 		updateCopiedTitle();
 	} catch (error) {
@@ -238,43 +231,40 @@ function extractPageId(value, baseUrl) {
 	return pageId;
 }
 
-function makeAuthHeader(settings) {
-	if (settings.authMode === "bearer") {
-		return `Bearer ${settings.token}`;
-	}
-	return `Basic ${btoa(`${settings.email}:${settings.token}`)}`;
-}
-
-async function confluenceRequest(settings, endpoint, options = {}) {
+async function localApiRequest(action, settings, parameters = {}) {
 	let response;
 	try {
-		response = await fetch(`${settings.baseUrl}${endpoint}`, {
-			...options,
+		response = await fetch("/api/confluence", {
+			method: "POST",
 			headers: {
-				Accept: "application/json",
-				Authorization: makeAuthHeader(settings),
-				...(options.body ? { "Content-Type": "application/json" } : {}),
-				...options.headers,
+				"Content-Type": "application/json",
 			},
+			body: JSON.stringify({
+				action,
+				baseUrl: settings.baseUrl,
+				authMode: settings.authMode,
+				email: settings.email,
+				token: settings.token,
+				...parameters,
+			}),
 		});
 	} catch (error) {
 		if (error instanceof TypeError) {
-			throw new Error("Could not reach Confluence. Check the URL and browser CORS settings for this site.");
+			throw new Error("Could not reach the local API. Restart the Node.js server and try again.");
 		}
 		throw error;
 	}
 
-	if (!response.ok) {
-		let detail = "";
-		try {
-			const body = await response.json();
-			detail = body.message || body.errorMessage || JSON.stringify(body);
-		} catch {
-			detail = response.statusText;
-		}
-		throw new Error(`Confluence returned ${response.status}${detail ? `: ${detail}` : ""}`);
+	let result;
+	try {
+		result = await response.json();
+	} catch {
+		throw new Error("The local API returned an invalid response.");
 	}
-	return response;
+	if (!response.ok) {
+		throw new Error(result.error || `Local API returned ${response.status}.`);
+	}
+	return result;
 }
 
 tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
@@ -331,44 +321,18 @@ copyForm.addEventListener("submit", async (event) => {
 	copyButton.disabled = true;
 	copyButton.querySelector("span:first-child").textContent = "Copying...";
 	try {
-		const sourceResponse = await confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(sourceId)}?expand=space,body.storage`);
-		const sourcePage = await sourceResponse.json();
-		if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
-			throw new Error("Confluence did not return the source page title and storage-format content.");
-		}
-		const destinationResponse = await confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(destinationId)}?expand=space`);
-		const destinationPage = await destinationResponse.json();
-		if (!destinationPage.space?.key) throw new Error("Confluence did not return the destination page's space.");
-		currentSourceTitle = sourcePage.title;
-		sourcePageTitle.textContent = sourcePage.title;
-		destinationPageTitle.textContent = destinationPage.title || "Page found";
-		pageCheckFeedback.textContent = "Both pages found.";
-
-		const replaceFrom = String(formData.get("replaceFrom") || "");
-		const replaceTo = String(formData.get("replaceTo") || "");
-		const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
-		updateCopiedTitle();
-		if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
-		const copyResponse = await confluenceRequest(settings, "/rest/api/content/", {
-			method: "POST",
-			body: JSON.stringify({
-				type: "page",
-				title,
-				space: { key: destinationPage.space.key },
-				ancestors: [{ id: destinationId }],
-				body: {
-					storage: {
-						value: sourcePage.body.storage.value,
-						representation: "storage",
-					},
-				},
-			}),
+		const result = await localApiRequest("copyPage", settings, {
+			sourceId,
+			destinationId,
+			replaceFrom: String(formData.get("replaceFrom") || ""),
+			replaceTo: String(formData.get("replaceTo") || ""),
 		});
-		const copiedPage = await copyResponse.json();
-		const copiedUrl = copiedPage._links?.webui
-			? new URL(copiedPage._links.webui, settings.baseUrl).toString()
-			: "";
-		showStatus("success", "Page copied", copiedUrl ? `${title} · ${copiedUrl}` : `Created “${title}” beneath the selected parent.`);
+		currentSourceTitle = result.sourceTitle || currentSourceTitle;
+		sourcePageTitle.textContent = currentSourceTitle || "Page found";
+		destinationPageTitle.textContent = result.destinationTitle || "Page found";
+		pageCheckFeedback.textContent = "Both pages found.";
+		updateCopiedTitle();
+		showStatus("success", "Page copied", result.webUrl ? `${result.title} · ${result.webUrl}` : `Created “${result.title}” beneath the selected parent.`);
 	} catch (error) {
 		showStatus("error", "Copy failed", error.message);
 	} finally {
