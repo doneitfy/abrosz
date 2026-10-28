@@ -1,5 +1,6 @@
 const SETTINGS_KEY = "page-relay-settings";
 const FONT_SIZE_KEY = "page-relay-font-size";
+const COPY_INPUTS_KEY = "page-relay-copy-inputs";
 
 const tabs = Array.from(document.querySelectorAll("[data-tab]"));
 const panels = {
@@ -23,6 +24,33 @@ const destinationPageTitle = document.getElementById("destination-page-title");
 const pageCheckFeedback = document.getElementById("page-check-feedback");
 const copiedTitle = document.getElementById("copied-title");
 let currentSourceTitle = "";
+
+function saveCopyInputs() {
+	const inputValues = Object.fromEntries(
+		["sourceUrl", "destinationUrl", "replaceFrom", "replaceTo"].map((name) => [
+			name,
+			copyForm.elements.namedItem(name).value,
+		]),
+	);
+	try {
+		localStorage.setItem(COPY_INPUTS_KEY, JSON.stringify(inputValues));
+	} catch {
+		return;
+	}
+}
+
+function restoreCopyInputs() {
+	try {
+		const inputValues = JSON.parse(localStorage.getItem(COPY_INPUTS_KEY) || "null");
+		if (!inputValues || typeof inputValues !== "object") return;
+		for (const name of ["sourceUrl", "destinationUrl", "replaceFrom", "replaceTo"]) {
+			const field = copyForm.elements.namedItem(name);
+			if (typeof inputValues[name] === "string") field.value = inputValues[name];
+		}
+	} catch {
+		return;
+	}
+}
 
 function setFontSize(value) {
 	const fontSize = Math.min(16, Math.max(12, Number(value) || 13));
@@ -94,6 +122,7 @@ function clearCheckedPages() {
 }
 
 async function checkPages() {
+	saveCopyInputs();
 	const settings = readSettings();
 	if (!settings?.baseUrl || !settings?.token) {
 		pageCheckFeedback.textContent = "Add Confluence connection details in Settings first.";
@@ -328,5 +357,6 @@ copyForm.addEventListener("submit", async (event) => {
 });
 
 populateSettings();
+restoreCopyInputs();
 showAuthFields();
 setFontSize(sessionStorage.getItem(FONT_SIZE_KEY) || fontSizeRange.value);
