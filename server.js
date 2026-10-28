@@ -182,8 +182,8 @@ async function handleConfluenceApi(request, response) {
 		sendJson(response, 403, { error: "Local API requests must come from this machine and origin." });
 		return;
 	}
-	if (request.method !== "POST") {
-		response.setHeader("Allow", "POST");
+	if (request.method !== "POST" && request.method !== "FETCH") {
+		response.setHeader("Allow", request.method);
 		sendJson(response, 405, { error: "Method not allowed." });
 		return;
 	}
