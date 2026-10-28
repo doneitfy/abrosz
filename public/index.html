@@ -60,6 +60,10 @@
 						<button class="secondary-button" type="button" id="check-pages-button">Check pages</button>
 						<span id="page-check-feedback" role="status" aria-live="polite">Fetch page titles before copying.</span>
 					</div>
+					<label class="child-pages-option" for="copy-children">
+						<input id="copy-children" name="copyChildren" type="checkbox">
+						<span>Also copy child pages</span>
+					</label>
 
 					<div class="form-divider"></div>
 
@@ -84,7 +88,7 @@
 					</div>
 
 					<div class="action-row">
-						<p class="action-note">Copies page content only. Attachments and comments are not copied.</p>
+						<p class="action-note">Attachments and comments are not copied.</p>
 						<button class="primary-button" type="submit" id="copy-button"><span>Copy page</span><span aria-hidden="true">&#8599;</span></button>
 					</div>
 				</form>

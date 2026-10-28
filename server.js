@@ -5,6 +5,8 @@ const path = require("node:path");
 const publicDirectory = path.resolve(__dirname, "public");
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3000);
+const MAX_COPY_CHILD_PAGES = 250;
+const CHILD_PAGE_LIMIT = 100;
 
 const contentTypes = {
 	".css": "text/css; charset=utf-8",
@@ -177,6 +179,63 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 	}
 }
 
+async function getDirectChildPages(settings, parentId) {
+	const children = [];
+	let start = 0;
+	for (;;) {
+		const result = await confluenceRequest(
+			settings,
+			`rest/api/content/${parentId}/child/page?limit=${CHILD_PAGE_LIMIT}&start=${start}`,
+		);
+		const pageResults = Array.isArray(result.results) ? result.results : [];
+		children.push(...pageResults);
+		if (pageResults.length < CHILD_PAGE_LIMIT) return children;
+		start += pageResults.length;
+	}
+}
+
+async function createPageCopy(settings, parentId, spaceKey, title, bodyValue) {
+	return confluenceRequest(settings, "rest/api/content/", {
+		method: "POST",
+		body: JSON.stringify({
+			type: "page",
+			title,
+			space: { key: spaceKey },
+			ancestors: [{ id: parentId }],
+			body: {
+				storage: {
+					value: bodyValue,
+					representation: "storage",
+				},
+			},
+		}),
+	});
+}
+
+async function copyChildPages(settings, sourceParentId, destinationParentId, spaceKey, replaceFrom, replaceTo, state, depth = 1) {
+	if (depth > 50) throw new Error("Child page nesting exceeds the 50-level limit.");
+	const children = await getDirectChildPages(settings, sourceParentId);
+	for (const child of children) {
+		const childId = pageId(String(child.id), "Child page ID");
+		if (state.visited.has(childId)) continue;
+		if (state.created >= MAX_COPY_CHILD_PAGES) {
+			throw new Error(`The copy reached the ${MAX_COPY_CHILD_PAGES}-page limit.`);
+		}
+		state.visited.add(childId);
+
+		const sourcePage = await confluenceRequest(settings, `rest/api/content/${childId}?expand=body.storage`);
+		if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
+			throw new Error(`Confluence did not return storage-format content for child page ${childId}.`);
+		}
+		const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
+		if (!title.trim()) throw new Error(`Title replacement left child page ${childId} empty.`);
+		const copiedPage = await createPageCopy(settings, destinationParentId, spaceKey, title, sourcePage.body.storage.value);
+		const copiedId = pageId(String(copiedPage.id), "Copied child page ID");
+		state.created += 1;
+		await copyChildPages(settings, childId, copiedId, spaceKey, replaceFrom, replaceTo, state, depth + 1);
+	}
+}
+
 async function handleConfluenceApi(request, response) {
 	if (!isLocalApiRequest(request)) {
 		sendJson(response, 403, { error: "Local API requests must come from this machine and origin." });
@@ -235,21 +294,16 @@ async function handleConfluenceApi(request, response) {
 			const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
 			if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
 
-			const copiedPage = await confluenceRequest(settings, "rest/api/content/", {
-				method: "POST",
-				body: JSON.stringify({
-					type: "page",
-					title,
-					space: { key: destinationPage.space.key },
-					ancestors: [{ id: destinationId }],
-					body: {
-						storage: {
-							value: sourcePage.body.storage.value,
-							representation: "storage",
-						},
-					},
-				}),
-			});
+			const copiedPage = await createPageCopy(settings, destinationId, destinationPage.space.key, title, sourcePage.body.storage.value);
+			const copiedRootId = pageId(String(copiedPage.id), "Copied page ID");
+			const state = { created: 1, visited: new Set([sourceId]) };
+			if (body.copyChildren === true) {
+				try {
+					await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, replaceFrom, replaceTo, state);
+				} catch (error) {
+					throw new Error(`The main page was copied, but child copying stopped after ${state.created - 1} child pages: ${error.message}`);
+				}
+			}
 			const webui = copiedPage._links?.webui;
 			const webUrl = typeof webui === "string"
 				? webui.startsWith("http")
@@ -257,8 +311,9 @@ async function handleConfluenceApi(request, response) {
 					: `${settings.baseUrl}${webui.startsWith("/") ? webui : `/${webui}`}`
 				: "";
 			sendJson(response, 200, {
-				id: copiedPage.id,
+				id: copiedRootId,
 				title,
+				copiedChildCount: state.created - 1,
 				sourceTitle: sourcePage.title,
 				destinationTitle: destinationPage.title,
 				webUrl,

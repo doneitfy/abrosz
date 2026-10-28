@@ -12,6 +12,7 @@ const copyForm = document.getElementById("copy-form");
 const settingsForm = document.getElementById("settings-form");
 const copyButton = document.getElementById("copy-button");
 const checkPagesButton = document.getElementById("check-pages-button");
+const copyChildrenCheckbox = document.getElementById("copy-children");
 const statusMessage = document.getElementById("status-message");
 const statusTitle = document.getElementById("status-title");
 const statusDetail = document.getElementById("status-detail");
@@ -28,12 +29,15 @@ const copiedTitle = document.getElementById("copied-title");
 let currentSourceTitle = "";
 
 function saveCopyInputs() {
-	const inputValues = Object.fromEntries(
+	const inputValues = {
+		...Object.fromEntries(
 		["sourceUrl", "destinationUrl", "replaceFrom", "replaceTo"].map((name) => [
 			name,
 			copyForm.elements.namedItem(name).value,
 		]),
-	);
+		),
+		copyChildren: copyChildrenCheckbox.checked,
+	};
 	try {
 		localStorage.setItem(COPY_INPUTS_KEY, JSON.stringify(inputValues));
 	} catch {
@@ -48,6 +52,9 @@ function restoreCopyInputs() {
 		for (const name of ["sourceUrl", "destinationUrl", "replaceFrom", "replaceTo"]) {
 			const field = copyForm.elements.namedItem(name);
 			if (typeof inputValues[name] === "string") field.value = inputValues[name];
+		}
+		if (typeof inputValues.copyChildren === "boolean") {
+			copyChildrenCheckbox.checked = inputValues.copyChildren;
 		}
 	} catch {
 		return;
@@ -359,13 +366,15 @@ copyForm.addEventListener("submit", async (event) => {
 			destinationId,
 			replaceFrom: String(formData.get("replaceFrom") || ""),
 			replaceTo: String(formData.get("replaceTo") || ""),
+			copyChildren: formData.get("copyChildren") === "on",
 		});
 		currentSourceTitle = result.sourceTitle || currentSourceTitle;
 		sourcePageTitle.textContent = currentSourceTitle || "Page found";
 		destinationPageTitle.textContent = result.destinationTitle || "Page found";
 		pageCheckFeedback.textContent = "Both pages found.";
 		updateCopiedTitle();
-		showStatus("success", "Page copied", result.webUrl ? `${result.title} · ${result.webUrl}` : `Created “${result.title}” beneath the selected parent.`);
+		const childSummary = result.copiedChildCount ? ` Included ${result.copiedChildCount} child pages.` : "";
+		showStatus("success", "Page copied", result.webUrl ? `${result.title} · ${result.webUrl}${childSummary}` : `Created “${result.title}” beneath the selected parent.${childSummary}`);
 	} catch (error) {
 		showStatus("error", "Copy failed", error.message);
 	} finally {
