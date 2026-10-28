@@ -1,4 +1,5 @@
 const SETTINGS_KEY = "page-relay-settings";
+const FONT_SIZE_KEY = "page-relay-font-size";
 
 const tabs = Array.from(document.querySelectorAll("[data-tab]"));
 const panels = {
@@ -14,6 +15,21 @@ const statusDetail = document.getElementById("status-detail");
 const authMode = document.getElementById("auth-mode");
 const emailField = document.getElementById("email-field");
 const settingsFeedback = document.getElementById("settings-feedback");
+const fontSizeRange = document.getElementById("font-size-range");
+const fontSizeValue = document.getElementById("font-size-value");
+
+function setFontSize(value) {
+	const fontSize = Math.min(16, Math.max(12, Number(value) || 13));
+	document.documentElement.style.setProperty("--ui-font-size", `${fontSize}px`);
+	fontSizeRange.value = String(fontSize);
+	fontSizeValue.value = `${fontSize} px`;
+	fontSizeValue.textContent = `${fontSize} px`;
+	try {
+		sessionStorage.setItem(FONT_SIZE_KEY, String(fontSize));
+	} catch {
+		return;
+	}
+}
 
 function readSettings() {
 	try {
@@ -141,6 +157,7 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 
 tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
 authMode.addEventListener("change", showAuthFields);
+fontSizeRange.addEventListener("input", () => setFontSize(fontSizeRange.value));
 
 settingsForm.addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -229,3 +246,4 @@ copyForm.addEventListener("submit", async (event) => {
 
 populateSettings();
 showAuthFields();
+setFontSize(sessionStorage.getItem(FONT_SIZE_KEY) || fontSizeRange.value);

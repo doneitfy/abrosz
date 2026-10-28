@@ -115,6 +115,14 @@
 							<input id="api-token" name="token" type="password" placeholder="Enter token" autocomplete="new-password" required>
 						</label>
 					</div>
+					<label class="field field-wide font-size-setting" for="font-size-range">
+						<span class="field-label">Interface font size</span>
+						<span class="font-size-control">
+							<input id="font-size-range" type="range" min="12" max="16" step="1" value="13" aria-label="Interface font size">
+							<output id="font-size-value" for="font-size-range">13 px</output>
+						</span>
+						<span class="field-hint">Applies immediately and lasts for this browser session.</span>
+					</label>
 					<div class="security-note"><span aria-hidden="true">i</span><p>Credentials are kept in this browser tab's session storage and sent only to the configured Confluence site. Anyone with access to this browser session may be able to use them.</p></div>
 					<div class="action-row settings-actions">
 						<p class="action-note" id="settings-feedback" aria-live="polite">Connection details are not saved to the server.</p>
