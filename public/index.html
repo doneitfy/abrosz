@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#f3f5f2">
+	<title>Page Relay | Confluence</title>
+	<link rel="stylesheet" href="/main.css">
+	<script src="/app.js" defer></script>
+</head>
+<body>
+	<div class="app-shell">
+		<header class="topbar">
+			<a class="brand" href="#copy" aria-label="Page Relay home">
+				<span class="brand-mark" aria-hidden="true"><span></span><span></span></span>
+				<span>page<span class="brand-accent">relay</span></span>
+			</a>
+			<div class="topbar-meta"><span class="connection-dot"></span><span id="connection-label">Not connected</span></div>
+		</header>
+
+		<main>
+			<section class="page-heading" aria-labelledby="page-title">
+				<div>
+					<p class="eyebrow">CONFLUENCE / CONTENT TOOL</p>
+					<h1 id="page-title">Copy a page<span class="heading-period">.</span></h1>
+					<p class="intro">Bring a page into a new parent and give its title a fresh start.</p>
+				</div>
+				<div class="heading-index" aria-hidden="true"><span>01</span><i></i><span>02</span></div>
+			</section>
+
+			<nav class="tabs" aria-label="Application sections" role="tablist">
+				<button class="tab is-active" id="copy-tab" type="button" role="tab" aria-selected="true" aria-controls="copy-panel" data-tab="copy">
+					<span class="tab-number">01</span> Copy page
+				</button>
+				<button class="tab" id="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel" data-tab="settings">
+					<span class="tab-number">02</span> Settings
+				</button>
+			</nav>
+
+			<section class="panel is-visible" id="copy-panel" role="tabpanel" aria-labelledby="copy-tab" tabindex="0">
+				<form id="copy-form" novalidate>
+					<div class="form-section-title">
+						<div><span class="step-marker">A</span><h2>Page locations</h2></div>
+						<p>Both pages must belong to the configured Confluence site.</p>
+					</div>
+
+					<div class="field-grid">
+						<label class="field field-wide" for="source-url">
+							<span class="field-label">Source page URL</span>
+							<input id="source-url" name="sourceUrl" type="url" placeholder="https://team.atlassian.net/wiki/spaces/OPS/pages/123456" autocomplete="url" required>
+							<span class="page-title-result"><span>Source title</span><strong id="source-page-title">Not checked</strong></span>
+						</label>
+						<label class="field field-wide" for="destination-url">
+							<span class="field-label">Destination parent URL</span>
+							<input id="destination-url" name="destinationUrl" type="url" placeholder="https://team.atlassian.net/wiki/spaces/OPS/pages/789012" autocomplete="url" required>
+							<span class="page-title-result"><span>Destination parent</span><strong id="destination-page-title">Not checked</strong></span>
+						</label>
+					</div>
+					<div class="page-check-row">
+						<button class="secondary-button" type="button" id="check-pages-button">Check pages</button>
+						<span id="page-check-feedback" role="status" aria-live="polite">Fetch page titles before copying.</span>
+					</div>
+					<label class="child-pages-option" for="copy-children">
+						<input id="copy-children" name="copyChildren" type="checkbox">
+						<span>Also copy child pages</span>
+					</label>
+
+					<div class="form-divider"></div>
+
+					<div class="form-section-title title-section-title">
+						<div><span class="step-marker">B</span><h2>Title adjustment</h2></div>
+						<p>Replaces matching text in the source page title only.</p>
+					</div>
+					<div class="field-grid replace-grid">
+						<label class="field" for="replace-from">
+							<span class="field-label">Replace from</span>
+							<input id="replace-from" name="replaceFrom" type="text" placeholder="Draft" autocomplete="off">
+						</label>
+						<div class="replace-arrow" aria-hidden="true">&#8594;</div>
+						<label class="field" for="replace-to">
+							<span class="field-label">Replace with</span>
+							<input id="replace-to" name="replaceTo" type="text" placeholder="Published" autocomplete="off">
+						</label>
+					</div>
+					<div class="copied-title-preview">
+						<span>Title of copied page</span>
+						<strong id="copied-title">Check pages to calculate title.</strong>
+					</div>
+
+					<div class="action-row">
+						<p class="action-note">Attachments and comments are not copied.</p>
+						<button class="primary-button" type="submit" id="copy-button"><span>Copy page</span><span aria-hidden="true">&#8599;</span></button>
+					</div>
+				</form>
+
+				<div class="status-message" id="status-message" role="status" aria-live="polite" hidden>
+					<span class="status-symbol" aria-hidden="true"></span>
+					<div><strong id="status-title"></strong><p id="status-detail"></p></div>
+				</div>
+			</section>
+
+			<section class="panel settings-panel" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab" tabindex="0" hidden>
+				<form id="settings-form" novalidate>
+					<div class="form-section-title">
+						<div><span class="step-marker">01</span><h2>Confluence connection</h2></div>
+						<p>The local Node server forwards requests to your Confluence site.</p>
+					</div>
+					<div class="field-grid settings-grid">
+						<label class="field field-wide" for="base-url">
+							<span class="field-label">Confluence REST API base URL</span>
+							<input id="base-url" name="baseUrl" type="url" placeholder="https://team.atlassian.net/wiki" autocomplete="url" required>
+							<span class="field-hint">Cloud: include /wiki. Data Center: use the site context path if it has one.</span>
+						</label>
+						<label class="field" for="auth-mode">
+							<span class="field-label">Authentication</span>
+							<select id="auth-mode" name="authMode">
+								<option value="cloud">Atlassian Cloud (email + API token)</option>
+								<option value="bearer">Data Center (Bearer token)</option>
+							</select>
+						</label>
+						<label class="field" id="email-field" for="account-email">
+							<span class="field-label">Account email</span>
+							<input id="account-email" name="email" type="email" placeholder="you@example.com" autocomplete="username">
+						</label>
+						<label class="field field-wide" for="api-token">
+							<span class="field-label">API token</span>
+							<input id="api-token" name="token" type="password" placeholder="Enter token" autocomplete="new-password" required>
+						</label>
+					</div>
+					<label class="field field-wide font-size-setting" for="font-size-range">
+						<span class="field-label">Interface font size</span>
+						<span class="font-size-control">
+							<input id="font-size-range" type="range" min="12" max="16" step="1" value="13" aria-label="Interface font size">
+							<output id="font-size-value" for="font-size-range">13 px</output>
+						</span>
+						<span class="field-hint">Applies immediately and lasts for this browser session.</span>
+					</label>
+					<div class="security-note"><span aria-hidden="true">i</span><p>The API token stays in this browser tab's session storage and is sent to the local Node server for each request. The server forwards it to the configured Confluence site without storing it. The Confluence URL and account email are saved in local storage.</p></div>
+					<div class="action-row settings-actions">
+						<p class="action-note" id="settings-feedback" aria-live="polite">Connection details are not saved to the server.</p>
+						<button class="secondary-button" type="button" id="test-connection-button">Test Connection</button>
+						<button class="primary-button" type="submit"><span>Save settings</span><span aria-hidden="true">&#8599;</span></button>
+					</div>
+				</form>
+			</section>
+		</main>
+
+		<footer class="footer"><span>PAGE RELAY</span><span>Local Node backend <i></i> No stored credentials</span></footer>
+	</div>
+</body>
+</html>
