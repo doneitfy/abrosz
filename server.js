@@ -191,6 +191,14 @@ async function handleConfluenceApi(request, response) {
 	try {
 		const body = await readJsonBody(request);
 		const settings = getConfluenceSettings(body);
+		if (body.action === "testConnection") {
+			const currentUser = await confluenceRequest(settings, "rest/api/user/current");
+			const displayName = currentUser.displayName || currentUser.username || currentUser.accountId;
+			if (!displayName) throw new Error("Confluence connected but did not return a user name.");
+			sendJson(response, 200, { displayName });
+			return;
+		}
+
 		if (body.action === "checkPages") {
 			const sourceId = pageId(body.sourceId, "Source page ID");
 			const destinationId = pageId(body.destinationId, "Destination page ID");

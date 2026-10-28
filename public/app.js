@@ -18,6 +18,7 @@ const statusDetail = document.getElementById("status-detail");
 const authMode = document.getElementById("auth-mode");
 const emailField = document.getElementById("email-field");
 const settingsFeedback = document.getElementById("settings-feedback");
+const testConnectionButton = document.getElementById("test-connection-button");
 const fontSizeRange = document.getElementById("font-size-range");
 const fontSizeValue = document.getElementById("font-size-value");
 const sourcePageTitle = document.getElementById("source-page-title");
@@ -267,9 +268,41 @@ async function localApiRequest(action, settings, parameters = {}) {
 	return result;
 }
 
+async function testConnection() {
+	const formData = new FormData(settingsForm);
+	let settings;
+	try {
+		settings = {
+			baseUrl: normalizeBaseUrl(formData.get("baseUrl")),
+			authMode: formData.get("authMode"),
+			email: String(formData.get("email") || "").trim(),
+			token: String(formData.get("token") || "").trim(),
+		};
+		if (!settings.token) throw new Error("Enter an API token before testing the connection.");
+		if (settings.authMode === "cloud" && !settings.email) throw new Error("Enter the Atlassian account email before testing.");
+	} catch (error) {
+		settingsFeedback.textContent = error.message;
+		return;
+	}
+
+	testConnectionButton.disabled = true;
+	testConnectionButton.textContent = "Testing...";
+	settingsFeedback.textContent = "Testing Confluence connection...";
+	try {
+		const result = await localApiRequest("testConnection", settings);
+		settingsFeedback.textContent = `Connected to Confluence as ${result.displayName}.`;
+	} catch (error) {
+		settingsFeedback.textContent = error.message;
+	} finally {
+		testConnectionButton.disabled = false;
+		testConnectionButton.textContent = "Test Connection";
+	}
+}
+
 tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
 authMode.addEventListener("change", showAuthFields);
 fontSizeRange.addEventListener("input", () => setFontSize(fontSizeRange.value));
+testConnectionButton.addEventListener("click", testConnection);
 checkPagesButton.addEventListener("click", checkPages);
 document.getElementById("source-url").addEventListener("input", clearCheckedPages);
 document.getElementById("destination-url").addEventListener("input", clearCheckedPages);
