@@ -9,6 +9,7 @@ const panels = {
 const copyForm = document.getElementById("copy-form");
 const settingsForm = document.getElementById("settings-form");
 const copyButton = document.getElementById("copy-button");
+const checkPagesButton = document.getElementById("check-pages-button");
 const statusMessage = document.getElementById("status-message");
 const statusTitle = document.getElementById("status-title");
 const statusDetail = document.getElementById("status-detail");
@@ -17,6 +18,11 @@ const emailField = document.getElementById("email-field");
 const settingsFeedback = document.getElementById("settings-feedback");
 const fontSizeRange = document.getElementById("font-size-range");
 const fontSizeValue = document.getElementById("font-size-value");
+const sourcePageTitle = document.getElementById("source-page-title");
+const destinationPageTitle = document.getElementById("destination-page-title");
+const pageCheckFeedback = document.getElementById("page-check-feedback");
+const copiedTitle = document.getElementById("copied-title");
+let currentSourceTitle = "";
 
 function setFontSize(value) {
 	const fontSize = Math.min(16, Math.max(12, Number(value) || 13));
@@ -66,6 +72,73 @@ function showStatus(type, title, detail) {
 	statusMessage.classList.toggle("is-error", type === "error");
 	statusTitle.textContent = title;
 	statusDetail.textContent = detail;
+}
+
+function updateCopiedTitle() {
+	if (!currentSourceTitle) {
+		copiedTitle.textContent = "Check pages to calculate title.";
+		return;
+	}
+	const replaceFrom = document.getElementById("replace-from").value;
+	const replaceTo = document.getElementById("replace-to").value;
+	const title = replaceFrom ? currentSourceTitle.split(replaceFrom).join(replaceTo) : currentSourceTitle;
+	copiedTitle.textContent = title || "Replacement would leave the title empty.";
+}
+
+function clearCheckedPages() {
+	currentSourceTitle = "";
+	sourcePageTitle.textContent = "Not checked";
+	destinationPageTitle.textContent = "Not checked";
+	pageCheckFeedback.textContent = "Fetch page titles before copying.";
+	updateCopiedTitle();
+}
+
+async function checkPages() {
+	const settings = readSettings();
+	if (!settings?.baseUrl || !settings?.token) {
+		pageCheckFeedback.textContent = "Add Confluence connection details in Settings first.";
+		setActiveTab("settings");
+		return;
+	}
+
+	const formData = new FormData(copyForm);
+	let sourceId;
+	let destinationId;
+	try {
+		sourceId = extractPageId(formData.get("sourceUrl"), new URL(settings.baseUrl));
+		destinationId = extractPageId(formData.get("destinationUrl"), new URL(settings.baseUrl));
+	} catch (error) {
+		pageCheckFeedback.textContent = error.message;
+		return;
+	}
+
+	checkPagesButton.disabled = true;
+	checkPagesButton.textContent = "Checking...";
+	pageCheckFeedback.textContent = "Fetching page titles...";
+	try {
+		const [sourceResponse, destinationResponse] = await Promise.all([
+			confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(sourceId)}?expand=title`),
+			confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(destinationId)}?expand=title`),
+		]);
+		const [sourcePage, destinationPage] = await Promise.all([
+			sourceResponse.json(),
+			destinationResponse.json(),
+		]);
+		if (!sourcePage.title || !destinationPage.title) {
+			throw new Error("Confluence did not return both page titles.");
+		}
+		currentSourceTitle = sourcePage.title;
+		sourcePageTitle.textContent = sourcePage.title;
+		destinationPageTitle.textContent = destinationPage.title;
+		pageCheckFeedback.textContent = "Both pages found.";
+		updateCopiedTitle();
+	} catch (error) {
+		clearCheckedPages();
+		pageCheckFeedback.textContent = error.message;
+	} finally {
+		checkPagesButton.disabled = false;
+		checkPagesButton.textContent = "Check pages";
+	}
 }
 
 function showAuthFields() {
@@ -158,6 +231,11 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
 authMode.addEventListener("change", showAuthFields);
 fontSizeRange.addEventListener("input", () => setFontSize(fontSizeRange.value));
+checkPagesButton.addEventListener("click", checkPages);
+document.getElementById("source-url").addEventListener("input", clearCheckedPages);
+document.getElementById("destination-url").addEventListener("input", clearCheckedPages);
+document.getElementById("replace-from").addEventListener("input", updateCopiedTitle);
+document.getElementById("replace-to").addEventListener("input", updateCopiedTitle);
 
 settingsForm.addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -211,10 +289,15 @@ copyForm.addEventListener("submit", async (event) => {
 		const destinationResponse = await confluenceRequest(settings, `/rest/api/content/${encodeURIComponent(destinationId)}?expand=space`);
 		const destinationPage = await destinationResponse.json();
 		if (!destinationPage.space?.key) throw new Error("Confluence did not return the destination page's space.");
+		currentSourceTitle = sourcePage.title;
+		sourcePageTitle.textContent = sourcePage.title;
+		destinationPageTitle.textContent = destinationPage.title || "Page found";
+		pageCheckFeedback.textContent = "Both pages found.";
 
 		const replaceFrom = String(formData.get("replaceFrom") || "");
 		const replaceTo = String(formData.get("replaceTo") || "");
 		const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
+		updateCopiedTitle();
 		if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
 		const copyResponse = await confluenceRequest(settings, "/rest/api/content/", {
 			method: "POST",

@@ -48,13 +48,17 @@
 						<label class="field field-wide" for="source-url">
 							<span class="field-label">Source page URL</span>
 							<input id="source-url" name="sourceUrl" type="url" placeholder="https://team.atlassian.net/wiki/spaces/OPS/pages/123456" autocomplete="url" required>
-							<span class="field-hint">The page to duplicate</span>
+							<span class="page-title-result"><span>Source title</span><strong id="source-page-title">Not checked</strong></span>
 						</label>
 						<label class="field field-wide" for="destination-url">
 							<span class="field-label">Destination parent URL</span>
 							<input id="destination-url" name="destinationUrl" type="url" placeholder="https://team.atlassian.net/wiki/spaces/OPS/pages/789012" autocomplete="url" required>
-							<span class="field-hint">The copied page will be created beneath this page</span>
+							<span class="page-title-result"><span>Destination parent</span><strong id="destination-page-title">Not checked</strong></span>
 						</label>
+					</div>
+					<div class="page-check-row">
+						<button class="secondary-button" type="button" id="check-pages-button">Check pages</button>
+						<span id="page-check-feedback" role="status" aria-live="polite">Fetch page titles before copying.</span>
 					</div>
 
 					<div class="form-divider"></div>
@@ -73,6 +77,10 @@
 							<span class="field-label">Replace with</span>
 							<input id="replace-to" name="replaceTo" type="text" placeholder="Published" autocomplete="off">
 						</label>
+					</div>
+					<div class="copied-title-preview">
+						<span>Title of copied page</span>
+						<strong id="copied-title">Check pages to calculate title.</strong>
 					</div>
 
 					<div class="action-row">
