@@ -22,9 +22,6 @@ const contentTypes = {
 	".webp": "image/webp",
 };
 
-
-process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
-
 function js(obj) {
 	return JSON.stringify(obj);
 }
@@ -46,6 +43,20 @@ function ld(obj, msg) {
 function logCaughtError(error) {
 	console.error("Caught error:", error);
 	console.error(error?.stack || "Stack trace unavailable.");
+}
+
+function isSelfSignedCertificateError(error) {
+	const selfSignedCodes = new Set(["DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN"]);
+	const visited = new Set();
+	let current = error;
+	while (current && !visited.has(current)) {
+		visited.add(current);
+		if (selfSignedCodes.has(current.code) || /self[- ]signed certificate/i.test(current.message || "")) {
+			return true;
+		}
+		current = current.cause;
+	}
+	return false;
 }
 
 
@@ -190,6 +201,9 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 		});
 	} catch (error) {
 		logCaughtError(error);
+		if (isSelfSignedCertificateError(error)) {
+			throw new Error("Confluence presented a self-signed TLS certificate. Install its issuing CA in the system trust store or use a certificate signed by a trusted CA.");
+		}
 		throw new Error("Could not reach Confluence. Check the URL and network connection.");
 	}
 
