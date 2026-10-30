@@ -204,6 +204,7 @@ function populateSettings() {
 	document.getElementById("auth-mode").value = settings?.authMode || "cloud";
 	document.getElementById("account-email").value = settings?.email || connectionDetails?.email || "";
 	document.getElementById("api-token").value = settings?.token || "";
+	document.getElementById("allow-self-signed-cert").checked = settings?.allowSelfSignedCert === true;
 	showAuthFields();
 	updateConnectionLabel();
 }
@@ -253,6 +254,7 @@ async function localApiRequest(action, settings, parameters = {}) {
 				authMode: settings.authMode,
 				email: settings.email,
 				token: settings.token,
+				allowSelfSignedCert: settings.allowSelfSignedCert === true,
 				...parameters,
 			}),
 		});
@@ -284,6 +286,7 @@ async function testConnection() {
 			authMode: formData.get("authMode"),
 			email: String(formData.get("email") || "").trim(),
 			token: String(formData.get("token") || "").trim(),
+			allowSelfSignedCert: formData.get("allowSelfSignedCert") === "on",
 		};
 		if (!settings.token) throw new Error("Enter an API token before testing the connection.");
 		if (settings.authMode === "cloud" && !settings.email) throw new Error("Enter the Atlassian account email before testing.");
@@ -325,6 +328,7 @@ settingsForm.addEventListener("submit", (event) => {
 			authMode: formData.get("authMode"),
 			email: String(formData.get("email")).trim(),
 			token: String(formData.get("token")).trim(),
+			allowSelfSignedCert: formData.get("allowSelfSignedCert") === "on",
 		};
 		if (!settings.token) throw new Error("Enter an API token.");
 		if (settings.authMode === "cloud" && !settings.email) throw new Error("Enter the Atlassian account email for this token.");

@@ -1,4 +1,5 @@
 const http = require("node:http");
+const https = require("node:https");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -172,6 +173,7 @@ function getConfluenceSettings(body) {
 		authMode: body.authMode,
 		email,
 		token: body.token,
+		allowSelfSignedCert: body.allowSelfSignedCert === true,
 	};
 }
 
@@ -187,18 +189,51 @@ function authorizationHeader(settings) {
 	return `Basic ${Buffer.from(`${settings.email}:${settings.token}`).toString("base64")}`;
 }
 
+function requestConfluenceResponse(url, options, allowSelfSignedCert) {
+	const target = new URL(url);
+	const transport = target.protocol === "https:" ? https : http;
+	return new Promise((resolve, reject) => {
+		let responseBody = "";
+		const request = transport.request(target, {
+			method: options.method || "GET",
+			headers: options.headers,
+			...(target.protocol === "https:" ? { rejectUnauthorized: !allowSelfSignedCert } : {}),
+		}, (response) => {
+			response.setEncoding("utf8");
+			response.on("data", (chunk) => {
+				responseBody += chunk;
+			});
+			response.on("end", () => {
+				const status = response.statusCode || 0;
+				resolve({
+					ok: status >= 200 && status < 300,
+					status,
+					statusText: response.statusMessage || "",
+					json: async () => JSON.parse(responseBody),
+				});
+			});
+			response.on("error", reject);
+		});
+		request.on("error", reject);
+		request.end(options.body);
+	});
+}
+
 async function confluenceRequest(settings, endpoint, options = {}) {
 	let response;
 	try {
-		response = await fetch(`${settings.baseUrl}/${endpoint}`, {
-			...options,
-			redirect: "manual",
-			headers: {
+		response = await requestConfluenceResponse(
+			`${settings.baseUrl}/${endpoint}`,
+			{
+				...options,
+				headers: {
 				Accept: "application/json",
 				Authorization: authorizationHeader(settings),
 				...(options.body ? { "Content-Type": "application/json" } : {}),
+				},
 			},
-		});
+			settings.allowSelfSignedCert,
+		);
 	} catch (error) {
 		logCaughtError(error);
 		if (isSelfSignedCertificateError(error)) {

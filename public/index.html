@@ -127,6 +127,11 @@
 							<input id="api-token" name="token" type="password" placeholder="Enter token" autocomplete="new-password" required>
 						</label>
 					</div>
+					<label class="child-pages-option tls-validation-setting" for="allow-self-signed-cert">
+						<input id="allow-self-signed-cert" name="allowSelfSignedCert" type="checkbox">
+						<span>Allow untrusted TLS certificates</span>
+					</label>
+					<p class="field-hint tls-validation-warning">This disables certificate validation for this Confluence connection and accepts any certificate. Use only with a server you trust.</p>
 					<label class="field field-wide font-size-setting" for="font-size-range">
 						<span class="field-label">Interface font size</span>
 						<span class="font-size-control">
