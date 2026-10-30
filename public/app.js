@@ -343,6 +343,13 @@ function renderChildPageList(pages, replacements) {
 	return list;
 }
 
+function getReplacedChildTitles(pages) {
+	return pages.flatMap((page) => [
+		{ id: String(page.id), title: applyTitleReplacements(page.title) },
+		...getReplacedChildTitles(page.children || []),
+	]);
+}
+
 function renderChildTitlePreview() {
 	childTitlePreview.hidden = !copyChildrenCheckbox.checked;
 	childTitleTree.replaceChildren();
@@ -375,7 +382,7 @@ async function checkPages() {
 	if (!settings?.baseUrl || !settings?.token) {
 		pageCheckFeedback.textContent = "Add Confluence connection details in Settings first.";
 		setActiveTab("settings");
-		return;
+		return false;
 	}
 
 	const formData = new FormData(copyForm);
@@ -386,7 +393,7 @@ async function checkPages() {
 		destinationId = extractPageId(formData.get("destinationUrl"), new URL(settings.baseUrl));
 	} catch (error) {
 		pageCheckFeedback.textContent = error.message;
-		return;
+		return false;
 	}
 
 	checkPagesButton.disabled = true;
@@ -413,9 +420,11 @@ async function checkPages() {
 			? `Both pages found. ${childCount} child page${childCount === 1 ? "" : "s"} found.`
 			: "Both pages found.";
 		updateCopiedTitle();
+		return true;
 	} catch (error) {
 		clearCheckedPages();
 		pageCheckFeedback.textContent = error.message;
+		return false;
 	} finally {
 		checkPagesButton.disabled = false;
 		checkPagesButton.textContent = "Check pages";
@@ -618,10 +627,20 @@ copyForm.addEventListener("submit", async (event) => {
 	copyButton.disabled = true;
 	copyButton.querySelector("span:first-child").textContent = "Copying...";
 	try {
+		if (!currentSourceTitle || (copyChildrenCheckbox.checked && !childPagesLoaded)) {
+			if (!await checkPages()) throw new Error("Check the source and destination pages before copying.");
+		}
+		const replacedTitle = applyTitleReplacements(currentSourceTitle);
+		if (!replacedTitle.trim()) throw new Error("The title replacement cannot leave the page title empty.");
+		const childTitles = copyChildrenCheckbox.checked ? getReplacedChildTitles(currentChildPages) : [];
+		if (childTitles.some((child) => !child.title.trim())) {
+			throw new Error("A child page title would be empty after replacement.");
+		}
 		const result = await localApiRequest("copyPage", settings, {
 			sourceId,
 			destinationId,
-			replacements: getReplacementPairs(),
+			replacedTitle,
+			childTitles,
 			copyChildren: formData.get("copyChildren") === "on",
 		});
 		currentSourceTitle = result.sourceTitle || currentSourceTitle;

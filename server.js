@@ -189,29 +189,6 @@ function authorizationHeader(settings) {
 	return `Basic ${Buffer.from(`${settings.email}:${settings.token}`).toString("base64")}`;
 }
 
-function getTitleReplacements(body) {
-	if (Array.isArray(body.replacements)) {
-		return body.replacements
-			.filter((replacement) => replacement && typeof replacement === "object" && !Array.isArray(replacement))
-			.map((replacement) => ({
-				from: typeof replacement.from === "string" ? replacement.from : "",
-				to: typeof replacement.to === "string" ? replacement.to : "",
-				enabled: replacement.enabled !== false,
-			}));
-	}
-	const from = typeof body.replaceFrom === "string" ? body.replaceFrom : "";
-	return from ? [{ from, to: typeof body.replaceTo === "string" ? body.replaceTo : "", enabled: true }] : [];
-}
-
-function applyTitleReplacements(title, replacements) {
-	for (const replacement of replacements) {
-		if (replacement.enabled && replacement.from) {
-			title = title.split(replacement.from).join(replacement.to);
-		}
-	}
-	return title;
-}
-
 function requestConfluenceResponse(url, options, allowSelfSignedCert) {
 	const target = new URL(url);
 	const transport = target.protocol === "https:" ? https : http;
@@ -349,6 +326,7 @@ async function getChildPageTree(settings, parentId, state, depth = 1) {
 		state.visited.add(childId);
 		state.count += 1;
 		tree.push({
+			id: childId,
 			title: child.title,
 			children: await getChildPageTree(settings, childId, state, depth + 1),
 		});
@@ -356,7 +334,7 @@ async function getChildPageTree(settings, parentId, state, depth = 1) {
 	return tree;
 }
 
-async function copyChildPages(settings, sourceParentId, destinationParentId, spaceKey, replacements, state, depth = 1) {
+async function copyChildPages(settings, sourceParentId, destinationParentId, spaceKey, childTitles, state, depth = 1) {
 	if (depth > 50) throw new Error("Child page nesting exceeds the 50-level limit.");
 	const children = await getDirectChildPages(settings, sourceParentId);
 	for (const child of children) {
@@ -371,12 +349,15 @@ async function copyChildPages(settings, sourceParentId, destinationParentId, spa
 		if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
 			throw new Error(`Confluence did not return storage-format content for child page ${childId}.`);
 		}
-		const title = applyTitleReplacements(sourcePage.title, replacements);
+		const title = childTitles.get(childId);
+		if (typeof title !== "string") {
+			throw new Error(`The replaced title for child page ${childId} is missing. Check pages again before copying.`);
+		}
 		if (!title.trim()) throw new Error(`Title replacement left child page ${childId} empty.`);
 		const copiedPage = await createConfluencePage(settings, destinationParentId, spaceKey, title, sourcePage.body.storage.value);
 		const copiedId = pageId(String(copiedPage.id), "Copied child page ID");
 		state.created += 1;
-		await copyChildPages(settings, childId, copiedId, spaceKey, replacements, state, depth + 1);
+		await copyChildPages(settings, childId, copiedId, spaceKey, childTitles, state, depth + 1);
 	}
 }
 
@@ -421,16 +402,28 @@ async function copyPage(settings, body) {
 		throw new Error("Confluence did not return the destination page's space.");
 	}
 
-	const replacements = getTitleReplacements(body);
-	const title = applyTitleReplacements(sourcePage.title, replacements);
+	if (body.replacedTitle !== undefined && typeof body.replacedTitle !== "string") {
+		throw new Error("The replaced page title must be a string.");
+	}
+	const title = body.replacedTitle ?? sourcePage.title;
 	if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
+	if (body.childTitles !== undefined && !Array.isArray(body.childTitles)) {
+		throw new Error("Replaced child titles must be a list.");
+	}
+	const childTitles = new Map();
+	for (const child of body.childTitles || []) {
+		if (!child || typeof child !== "object" || typeof child.title !== "string") {
+			throw new Error("A replaced child title is invalid.");
+		}
+		childTitles.set(pageId(String(child.id), "Child page ID"), child.title);
+	}
 
 	const copiedPage = await createConfluencePage(settings, destinationId, destinationPage.space.key, title, sourcePage.body.storage.value);
 	const copiedRootId = pageId(String(copiedPage.id), "Copied page ID");
 	const state = { created: 1, visited: new Set([sourceId]) };
 	if (body.copyChildren === true) {
 		try {
-			await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, replacements, state);
+			await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, childTitles, state);
 		} catch (error) {
 			logCaughtError(error);
 			throw new Error(`The main page was copied, but child copying stopped after ${state.created - 1} child pages: ${error.message}`);
@@ -438,7 +431,6 @@ async function copyPage(settings, body) {
 	}
 
 	const webui = copiedPage._links?.webui;
-		logCaughtError(error);
 	const webUrl = typeof webui === "string"
 		? webui.startsWith("http")
 			? webui
