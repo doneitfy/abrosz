@@ -22,6 +22,28 @@ const contentTypes = {
 	".webp": "image/webp",
 };
 
+
+process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
+
+function js(obj) {
+	return JSON.stringify(obj);
+}
+
+function jl(obj, msg) {
+	let logText = msg ? `${msg}: ` : "";
+	logText += JSON.stringify(obj);
+	console.log(logText);
+}
+
+function ll(msg) {
+	console.log(msg);
+}
+
+function ld(obj, msg) {
+	console.debug(msg);
+}
+
+
 function isWithinDirectory(directory, candidate) {
 	const relativePath = path.relative(directory, candidate);
 	return relativePath === "" ||
