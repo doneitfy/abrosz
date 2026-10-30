@@ -69,22 +69,20 @@
 
 					<div class="form-section-title title-section-title">
 						<div><span class="step-marker">B</span><h2>Title adjustment</h2></div>
-						<p>Replaces matching text in the source page title only.</p>
+						<p>Enabled replacement rules run from top to bottom.</p>
 					</div>
-					<div class="field-grid replace-grid">
-						<label class="field" for="replace-from">
-							<span class="field-label">Replace from</span>
-							<input id="replace-from" name="replaceFrom" type="text" placeholder="Draft" autocomplete="off">
-						</label>
-						<div class="replace-arrow" aria-hidden="true">&#8594;</div>
-						<label class="field" for="replace-to">
-							<span class="field-label">Replace with</span>
-							<input id="replace-to" name="replaceTo" type="text" placeholder="Published" autocomplete="off">
-						</label>
-					</div>
+					<div class="replacement-pairs" id="replacement-pairs" aria-label="Ordered replacement rules"></div>
+					<button class="secondary-button replacement-add-button" type="button" id="add-replacement-button">
+						<span aria-hidden="true">+</span> Add replacement pair
+					</button>
 					<div class="copied-title-preview">
 						<span>Title of copied page</span>
 						<strong id="copied-title">Check pages to calculate title.</strong>
+					</div>
+					<div class="child-title-preview" id="child-title-preview" hidden aria-live="polite">
+						<div class="child-title-heading"><strong>Child page titles</strong><span>Original <span aria-hidden="true">&#8594;</span> Replaced</span></div>
+						<p class="child-title-feedback" id="child-title-feedback"></p>
+						<div id="child-title-tree"></div>
 					</div>
 
 					<div class="action-row">
