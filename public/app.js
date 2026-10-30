@@ -18,6 +18,8 @@ const statusTitle = document.getElementById("status-title");
 const statusDetail = document.getElementById("status-detail");
 const authMode = document.getElementById("auth-mode");
 const emailField = document.getElementById("email-field");
+const saveTokenCheckbox = document.getElementById("save-token-between-sessions");
+const securityNoteText = document.getElementById("security-note-text");
 const settingsFeedback = document.getElementById("settings-feedback");
 const testConnectionButton = document.getElementById("test-connection-button");
 const fontSizeRange = document.getElementById("font-size-range");
@@ -92,13 +94,23 @@ function readConnectionDetails() {
 
 function saveConnectionDetails(settings) {
 	try {
-		localStorage.setItem(CONNECTION_DETAILS_KEY, JSON.stringify({
+		const connectionDetails = {
 			baseUrl: settings.baseUrl,
 			email: settings.email,
-		}));
+			saveTokenBetweenSessions: settings.saveTokenBetweenSessions,
+		};
+		if (settings.saveTokenBetweenSessions) connectionDetails.token = settings.token;
+		localStorage.setItem(CONNECTION_DETAILS_KEY, JSON.stringify(connectionDetails));
+		return true;
 	} catch {
-		return;
+		return false;
 	}
+}
+
+function updateSecurityNote() {
+	securityNoteText.textContent = saveTokenCheckbox.checked
+		? "When saved, your API token and connection details are stored in this browser's local storage between sessions. The token is sent to the local Node server for each request; the server does not store it."
+		: "Your API token stays in this browser tab's session storage and is sent to the local Node server for each request. The server forwards it to Confluence without storing it. The Confluence URL and account email are saved in local storage.";
 }
 
 function updateConnectionLabel() {
@@ -203,8 +215,10 @@ function populateSettings() {
 	document.getElementById("base-url").value = settings?.baseUrl || connectionDetails?.baseUrl || "";
 	document.getElementById("auth-mode").value = settings?.authMode || "cloud";
 	document.getElementById("account-email").value = settings?.email || connectionDetails?.email || "";
-	document.getElementById("api-token").value = settings?.token || "";
+	saveTokenCheckbox.checked = settings?.saveTokenBetweenSessions ?? connectionDetails?.saveTokenBetweenSessions === true;
+	document.getElementById("api-token").value = settings?.token || (saveTokenCheckbox.checked ? connectionDetails?.token : "") || "";
 	document.getElementById("allow-self-signed-cert").checked = settings?.allowSelfSignedCert === true;
+	updateSecurityNote();
 	showAuthFields();
 	updateConnectionLabel();
 }
@@ -318,6 +332,7 @@ document.getElementById("source-url").addEventListener("input", clearCheckedPage
 document.getElementById("destination-url").addEventListener("input", clearCheckedPages);
 document.getElementById("replace-from").addEventListener("input", updateCopiedTitle);
 document.getElementById("replace-to").addEventListener("input", updateCopiedTitle);
+saveTokenCheckbox.addEventListener("change", updateSecurityNote);
 
 settingsForm.addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -328,13 +343,18 @@ settingsForm.addEventListener("submit", (event) => {
 			authMode: formData.get("authMode"),
 			email: String(formData.get("email")).trim(),
 			token: String(formData.get("token")).trim(),
+			saveTokenBetweenSessions: saveTokenCheckbox.checked,
 			allowSelfSignedCert: formData.get("allowSelfSignedCert") === "on",
 		};
 		if (!settings.token) throw new Error("Enter an API token.");
 		if (settings.authMode === "cloud" && !settings.email) throw new Error("Enter the Atlassian account email for this token.");
 		sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-		saveConnectionDetails(settings);
-		settingsFeedback.textContent = "Settings saved for this browser session.";
+		const connectionDetailsSaved = saveConnectionDetails(settings);
+		settingsFeedback.textContent = settings.saveTokenBetweenSessions && !connectionDetailsSaved
+			? "Settings saved for this browser session, but local storage is unavailable so the token will not persist."
+			: settings.saveTokenBetweenSessions
+				? "Settings and API token saved between sessions."
+				: "Settings saved for this browser session.";
 		updateConnectionLabel();
 	} catch (error) {
 		settingsFeedback.textContent = error.message;

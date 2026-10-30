@@ -127,6 +127,10 @@
 							<input id="api-token" name="token" type="password" placeholder="Enter token" autocomplete="new-password" required>
 						</label>
 					</div>
+					<label class="child-pages-option" for="save-token-between-sessions">
+						<input id="save-token-between-sessions" name="saveTokenBetweenSessions" type="checkbox">
+						<span>Save API token between sessions</span>
+					</label>
 					<label class="child-pages-option tls-validation-setting" for="allow-self-signed-cert">
 						<input id="allow-self-signed-cert" name="allowSelfSignedCert" type="checkbox">
 						<span>Allow untrusted TLS certificates</span>
@@ -140,7 +144,7 @@
 						</span>
 						<span class="field-hint">Applies immediately and lasts for this browser session.</span>
 					</label>
-					<div class="security-note"><span aria-hidden="true">i</span><p>The API token stays in this browser tab's session storage and is sent to the local Node server for each request. The server forwards it to the configured Confluence site without storing it. The Confluence URL and account email are saved in local storage.</p></div>
+					<div class="security-note"><span aria-hidden="true">i</span><p id="security-note-text"></p></div>
 					<div class="action-row settings-actions">
 						<p class="action-note" id="settings-feedback" aria-live="polite">Connection details are not saved to the server.</p>
 						<button class="secondary-button" type="button" id="test-connection-button">Test Connection</button>
