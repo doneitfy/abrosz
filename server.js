@@ -43,6 +43,11 @@ function ld(obj, msg) {
 	console.debug(msg);
 }
 
+function logCaughtError(error) {
+	console.error("Caught error:", error);
+	console.error(error?.stack || "Stack trace unavailable.");
+}
+
 
 function isWithinDirectory(directory, candidate) {
 	const relativePath = path.relative(directory, candidate);
@@ -77,7 +82,8 @@ function isLocalApiRequest(request) {
 	let hostUrl;
 	try {
 		hostUrl = new URL(`http://${request.headers.host}`);
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		return false;
 	}
 	if (hostUrl.hostname !== "localhost" && hostUrl.hostname !== "127.0.0.1") return false;
@@ -86,7 +92,8 @@ function isLocalApiRequest(request) {
 	try {
 		const originUrl = new URL(request.headers.origin);
 		return originUrl.protocol === "http:" && originUrl.origin === hostUrl.origin;
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		return false;
 	}
 }
@@ -112,7 +119,8 @@ async function readJsonBody(request) {
 
 	try {
 		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
+	} catch (caughtError) {
+		logCaughtError(caughtError);
 		const error = new Error("Request body must contain valid JSON.");
 		error.statusCode = 400;
 		throw error;
@@ -130,7 +138,8 @@ function getConfluenceSettings(body) {
 	let baseUrl;
 	try {
 		baseUrl = new URL(body.baseUrl);
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		throw new Error("Confluence URL is invalid.");
 	}
 	const localHttp = baseUrl.protocol === "http:" &&
@@ -179,7 +188,8 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 				...(options.body ? { "Content-Type": "application/json" } : {}),
 			},
 		});
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		throw new Error("Could not reach Confluence. Check the URL and network connection.");
 	}
 
@@ -188,7 +198,8 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 		try {
 			const body = await response.json();
 			detail = body.message || body.errorMessage || detail;
-		} catch {
+		} catch (error) {
+			logCaughtError(error);
 			// Use the status text when Confluence does not return JSON.
 		}
 		throw new Error(`Confluence returned ${response.status}${detail ? `: ${String(detail).slice(0, 500)}` : ""}`);
@@ -196,7 +207,8 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 
 	try {
 		return await response.json();
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		throw new Error("Confluence returned an invalid JSON response.");
 	}
 }
@@ -322,11 +334,13 @@ async function copyPage(settings, body) {
 		try {
 			await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, replaceFrom, replaceTo, state);
 		} catch (error) {
+			logCaughtError(error);
 			throw new Error(`The main page was copied, but child copying stopped after ${state.created - 1} child pages: ${error.message}`);
 		}
 	}
 
 	const webui = copiedPage._links?.webui;
+		logCaughtError(error);
 	const webUrl = typeof webui === "string"
 		? webui.startsWith("http")
 			? webui
@@ -377,7 +391,8 @@ async function findPublicFile(requestPath, realPublicDirectory) {
 	let decodedPath;
 	try {
 		decodedPath = decodeURIComponent(requestPath);
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		return { statusCode: 400 };
 	}
 
@@ -414,6 +429,7 @@ async function findPublicFile(requestPath, realPublicDirectory) {
 		if (error.code === "ENOENT" || error.code === "ENOTDIR") {
 			return { statusCode: 404 };
 		}
+		logCaughtError(error);
 		throw error;
 	}
 }
@@ -424,7 +440,8 @@ async function handleRequest(request, response, realPublicDirectory) {
 	let requestPath;
 	try {
 		requestPath = new URL(request.url, "http://localhost").pathname;
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		sendError(response, 400, "Bad request");
 		return;
 	}
@@ -456,7 +473,8 @@ async function handleRequest(request, response, realPublicDirectory) {
 	}
 
 	const fileStream = fs.createReadStream(result.realPath);
-	fileStream.on("error", () => {
+	fileStream.on("error", (error) => {
+		logCaughtError(error);
 		if (!response.headersSent) {
 			sendError(response, 500, "Internal server error");
 		} else {
@@ -469,7 +487,8 @@ async function handleRequest(request, response, realPublicDirectory) {
 async function startServer() {
 	const realPublicDirectory = await fs.promises.realpath(publicDirectory);
 	const server = http.createServer((request, response) => {
-		handleRequest(request, response, realPublicDirectory).catch(() => {
+		handleRequest(request, response, realPublicDirectory).catch((error) => {
+			logCaughtError(error);
 			if (!response.headersSent) {
 				sendError(response, 500, "Internal server error");
 			} else {
@@ -484,6 +503,7 @@ async function startServer() {
 }
 
 startServer().catch((error) => {
+	logCaughtError(error);
 	console.error(`Unable to start server: ${error.message}`);
 	process.exitCode = 1;
 });
