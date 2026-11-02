@@ -1,4 +1,5 @@
 const http = require("node:http");
+const https = require("node:https");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -21,6 +22,44 @@ const contentTypes = {
 	".txt": "text/plain; charset=utf-8",
 	".webp": "image/webp",
 };
+
+function js(obj) {
+	return JSON.stringify(obj);
+}
+
+function jl(obj, msg) {
+	let logText = msg ? `${msg}: ` : "";
+	logText += JSON.stringify(obj);
+	console.log(logText);
+}
+
+function ll(msg) {
+	console.log(msg);
+}
+
+function ld(obj, msg) {
+	console.debug(msg);
+}
+
+function logCaughtError(error) {
+	console.error("Caught error:", error);
+	console.error(error?.stack || "Stack trace unavailable.");
+}
+
+function isSelfSignedCertificateError(error) {
+	const selfSignedCodes = new Set(["DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN"]);
+	const visited = new Set();
+	let current = error;
+	while (current && !visited.has(current)) {
+		visited.add(current);
+		if (selfSignedCodes.has(current.code) || /self[- ]signed certificate/i.test(current.message || "")) {
+			return true;
+		}
+		current = current.cause;
+	}
+	return false;
+}
+
 
 function isWithinDirectory(directory, candidate) {
 	const relativePath = path.relative(directory, candidate);
@@ -55,7 +94,8 @@ function isLocalApiRequest(request) {
 	let hostUrl;
 	try {
 		hostUrl = new URL(`http://${request.headers.host}`);
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		return false;
 	}
 	if (hostUrl.hostname !== "localhost" && hostUrl.hostname !== "127.0.0.1") return false;
@@ -64,7 +104,8 @@ function isLocalApiRequest(request) {
 	try {
 		const originUrl = new URL(request.headers.origin);
 		return originUrl.protocol === "http:" && originUrl.origin === hostUrl.origin;
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		return false;
 	}
 }
@@ -90,7 +131,8 @@ async function readJsonBody(request) {
 
 	try {
 		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
+	} catch (caughtError) {
+		logCaughtError(caughtError);
 		const error = new Error("Request body must contain valid JSON.");
 		error.statusCode = 400;
 		throw error;
@@ -108,7 +150,8 @@ function getConfluenceSettings(body) {
 	let baseUrl;
 	try {
 		baseUrl = new URL(body.baseUrl);
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		throw new Error("Confluence URL is invalid.");
 	}
 	const localHttp = baseUrl.protocol === "http:" &&
@@ -130,6 +173,7 @@ function getConfluenceSettings(body) {
 		authMode: body.authMode,
 		email,
 		token: body.token,
+		allowSelfSignedCert: body.allowSelfSignedCert === true,
 	};
 }
 
@@ -145,19 +189,56 @@ function authorizationHeader(settings) {
 	return `Basic ${Buffer.from(`${settings.email}:${settings.token}`).toString("base64")}`;
 }
 
+function requestConfluenceResponse(url, options, allowSelfSignedCert) {
+	const target = new URL(url);
+	const transport = target.protocol === "https:" ? https : http;
+	return new Promise((resolve, reject) => {
+		let responseBody = "";
+		const request = transport.request(target, {
+			method: options.method || "GET",
+			headers: options.headers,
+			...(target.protocol === "https:" ? { rejectUnauthorized: !allowSelfSignedCert } : {}),
+		}, (response) => {
+			response.setEncoding("utf8");
+			response.on("data", (chunk) => {
+				responseBody += chunk;
+			});
+			response.on("end", () => {
+				const status = response.statusCode || 0;
+				resolve({
+					ok: status >= 200 && status < 300,
+					status,
+					statusText: response.statusMessage || "",
+					json: async () => JSON.parse(responseBody),
+				});
+			});
+			response.on("error", reject);
+		});
+		request.on("error", reject);
+		request.end(options.body);
+	});
+}
+
 async function confluenceRequest(settings, endpoint, options = {}) {
 	let response;
 	try {
-		response = await fetch(`${settings.baseUrl}/${endpoint}`, {
-			...options,
-			redirect: "manual",
-			headers: {
+		response = await requestConfluenceResponse(
+			`${settings.baseUrl}/${endpoint}`,
+			{
+				...options,
+				headers: {
 				Accept: "application/json",
 				Authorization: authorizationHeader(settings),
 				...(options.body ? { "Content-Type": "application/json" } : {}),
+				},
 			},
-		});
-	} catch {
+			settings.allowSelfSignedCert,
+		);
+	} catch (error) {
+		logCaughtError(error);
+		if (isSelfSignedCertificateError(error)) {
+			throw new Error("Confluence presented a self-signed TLS certificate. Install its issuing CA in the system trust store or use a certificate signed by a trusted CA.");
+		}
 		throw new Error("Could not reach Confluence. Check the URL and network connection.");
 	}
 
@@ -166,7 +247,8 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 		try {
 			const body = await response.json();
 			detail = body.message || body.errorMessage || detail;
-		} catch {
+		} catch (error) {
+			logCaughtError(error);
 			// Use the status text when Confluence does not return JSON.
 		}
 		throw new Error(`Confluence returned ${response.status}${detail ? `: ${String(detail).slice(0, 500)}` : ""}`);
@@ -174,7 +256,8 @@ async function confluenceRequest(settings, endpoint, options = {}) {
 
 	try {
 		return await response.json();
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		throw new Error("Confluence returned an invalid JSON response.");
 	}
 }
@@ -227,7 +310,31 @@ async function getDirectChildPages(settings, parentId) {
 	}
 }
 
-async function copyChildPages(settings, sourceParentId, destinationParentId, spaceKey, replaceFrom, replaceTo, state, depth = 1) {
+async function getChildPageTree(settings, parentId, state, depth = 1) {
+	if (depth > 50) throw new Error("Child page nesting exceeds the 50-level limit.");
+	const children = await getDirectChildPages(settings, parentId);
+	const tree = [];
+	for (const child of children) {
+		const childId = pageId(String(child.id), "Child page ID");
+		if (state.visited.has(childId)) continue;
+		if (state.count >= MAX_COPY_CHILD_PAGES) {
+			throw new Error(`The child page preview reached the ${MAX_COPY_CHILD_PAGES}-page limit.`);
+		}
+		if (typeof child.title !== "string") {
+			throw new Error(`Confluence did not return a title for child page ${childId}.`);
+		}
+		state.visited.add(childId);
+		state.count += 1;
+		tree.push({
+			id: childId,
+			title: child.title,
+			children: await getChildPageTree(settings, childId, state, depth + 1),
+		});
+	}
+	return tree;
+}
+
+async function copyChildPages(settings, sourceParentId, destinationParentId, spaceKey, childTitles, state, depth = 1) {
 	if (depth > 50) throw new Error("Child page nesting exceeds the 50-level limit.");
 	const children = await getDirectChildPages(settings, sourceParentId);
 	for (const child of children) {
@@ -242,12 +349,15 @@ async function copyChildPages(settings, sourceParentId, destinationParentId, spa
 		if (!sourcePage.title || typeof sourcePage.body?.storage?.value !== "string") {
 			throw new Error(`Confluence did not return storage-format content for child page ${childId}.`);
 		}
-		const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
+		const title = childTitles.get(childId);
+		if (typeof title !== "string") {
+			throw new Error(`The replaced title for child page ${childId} is missing. Check pages again before copying.`);
+		}
 		if (!title.trim()) throw new Error(`Title replacement left child page ${childId} empty.`);
 		const copiedPage = await createConfluencePage(settings, destinationParentId, spaceKey, title, sourcePage.body.storage.value);
 		const copiedId = pageId(String(copiedPage.id), "Copied child page ID");
 		state.created += 1;
-		await copyChildPages(settings, childId, copiedId, spaceKey, replaceFrom, replaceTo, state, depth + 1);
+		await copyChildPages(settings, childId, copiedId, spaceKey, childTitles, state, depth + 1);
 	}
 }
 
@@ -261,9 +371,12 @@ async function testConnection(settings) {
 async function checkPages(settings, body) {
 	const sourceId = pageId(body.sourceId, "Source page ID");
 	const destinationId = pageId(body.destinationId, "Destination page ID");
-	const [sourcePage, destinationPage] = await Promise.all([
+	const [sourcePage, destinationPage, childPages] = await Promise.all([
 		getConfluencePage(settings, sourceId, "title"),
 		getConfluencePage(settings, destinationId, "title"),
+		body.includeChildren === true
+			? getChildPageTree(settings, sourceId, { visited: new Set([sourceId]), count: 0 })
+			: Promise.resolve([]),
 	]);
 	if (!sourcePage.title || !destinationPage.title) {
 		throw new Error("Confluence did not return both page titles.");
@@ -271,6 +384,7 @@ async function checkPages(settings, body) {
 	return {
 		sourceTitle: sourcePage.title,
 		destinationTitle: destinationPage.title,
+		childPages,
 	};
 }
 
@@ -288,18 +402,30 @@ async function copyPage(settings, body) {
 		throw new Error("Confluence did not return the destination page's space.");
 	}
 
-	const replaceFrom = typeof body.replaceFrom === "string" ? body.replaceFrom : "";
-	const replaceTo = typeof body.replaceTo === "string" ? body.replaceTo : "";
-	const title = replaceFrom ? sourcePage.title.split(replaceFrom).join(replaceTo) : sourcePage.title;
+	if (body.replacedTitle !== undefined && typeof body.replacedTitle !== "string") {
+		throw new Error("The replaced page title must be a string.");
+	}
+	const title = body.replacedTitle ?? sourcePage.title;
 	if (!title.trim()) throw new Error("The title replacement cannot leave the page title empty.");
+	if (body.childTitles !== undefined && !Array.isArray(body.childTitles)) {
+		throw new Error("Replaced child titles must be a list.");
+	}
+	const childTitles = new Map();
+	for (const child of body.childTitles || []) {
+		if (!child || typeof child !== "object" || typeof child.title !== "string") {
+			throw new Error("A replaced child title is invalid.");
+		}
+		childTitles.set(pageId(String(child.id), "Child page ID"), child.title);
+	}
 
 	const copiedPage = await createConfluencePage(settings, destinationId, destinationPage.space.key, title, sourcePage.body.storage.value);
 	const copiedRootId = pageId(String(copiedPage.id), "Copied page ID");
 	const state = { created: 1, visited: new Set([sourceId]) };
 	if (body.copyChildren === true) {
 		try {
-			await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, replaceFrom, replaceTo, state);
+			await copyChildPages(settings, sourceId, copiedRootId, destinationPage.space.key, childTitles, state);
 		} catch (error) {
+			logCaughtError(error);
 			throw new Error(`The main page was copied, but child copying stopped after ${state.created - 1} child pages: ${error.message}`);
 		}
 	}
@@ -355,7 +481,8 @@ async function findPublicFile(requestPath, realPublicDirectory) {
 	let decodedPath;
 	try {
 		decodedPath = decodeURIComponent(requestPath);
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		return { statusCode: 400 };
 	}
 
@@ -392,6 +519,7 @@ async function findPublicFile(requestPath, realPublicDirectory) {
 		if (error.code === "ENOENT" || error.code === "ENOTDIR") {
 			return { statusCode: 404 };
 		}
+		logCaughtError(error);
 		throw error;
 	}
 }
@@ -402,7 +530,8 @@ async function handleRequest(request, response, realPublicDirectory) {
 	let requestPath;
 	try {
 		requestPath = new URL(request.url, "http://localhost").pathname;
-	} catch {
+	} catch (error) {
+		logCaughtError(error);
 		sendError(response, 400, "Bad request");
 		return;
 	}
@@ -434,7 +563,8 @@ async function handleRequest(request, response, realPublicDirectory) {
 	}
 
 	const fileStream = fs.createReadStream(result.realPath);
-	fileStream.on("error", () => {
+	fileStream.on("error", (error) => {
+		logCaughtError(error);
 		if (!response.headersSent) {
 			sendError(response, 500, "Internal server error");
 		} else {
@@ -447,7 +577,8 @@ async function handleRequest(request, response, realPublicDirectory) {
 async function startServer() {
 	const realPublicDirectory = await fs.promises.realpath(publicDirectory);
 	const server = http.createServer((request, response) => {
-		handleRequest(request, response, realPublicDirectory).catch(() => {
+		handleRequest(request, response, realPublicDirectory).catch((error) => {
+			logCaughtError(error);
 			if (!response.headersSent) {
 				sendError(response, 500, "Internal server error");
 			} else {
@@ -462,6 +593,7 @@ async function startServer() {
 }
 
 startServer().catch((error) => {
+	logCaughtError(error);
 	console.error(`Unable to start server: ${error.message}`);
 	process.exitCode = 1;
 });

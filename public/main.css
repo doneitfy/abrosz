@@ -253,8 +253,41 @@ h2 { margin: 0; font-size: 15px; font-weight: 700; }
 
 .form-divider { height: 1px; margin: 27px 0 24px; background: #e7ebe6; }
 .title-section-title { margin-bottom: 17px; }
-.replace-grid { grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); align-items: end; gap: 15px; }
-.replace-arrow { padding-bottom: 11px; color: var(--coral); text-align: center; }
+.replacement-pairs { display: grid; gap: 9px; }
+.replacement-pair { padding: 8px 10px; border: 1px solid #e1e7e1; border-radius: 3px; background: #fbfcfa; }
+.replacement-pair.is-disabled { background: #f4f5f2; }
+.replacement-pair-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.replacement-order { min-width: 62px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.replacement-pair-controls { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+.replacement-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--green-dark); font-size: 10px; font-weight: 650; cursor: pointer; }
+.replacement-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.replacement-switch { position: relative; width: 27px; height: 15px; border-radius: 8px; background: #aab4ae; transition: background 130ms ease; }
+.replacement-switch::after { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; content: ""; transition: transform 130ms ease; }
+.replacement-toggle input:checked + .replacement-switch { background: var(--green); }
+.replacement-toggle input:checked + .replacement-switch::after { transform: translateX(12px); }
+.replacement-toggle input:focus-visible + .replacement-switch { outline: 2px solid #acd4c6; outline-offset: 2px; }
+.replacement-pair.is-disabled .replacement-toggle { color: var(--muted); }
+.replacement-pair-controls button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 1px solid #d9e0da; border-radius: 2px; background: #fff; color: var(--green-dark); cursor: pointer; }
+.replacement-pair-controls button:hover:not(:disabled) { background: #f0f4f0; }
+.replacement-pair-controls button:disabled { opacity: .4; cursor: default; }
+.replacement-remove { margin-left: 3px; color: #a34436 !important; }
+.replace-grid { grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); align-items: end; gap: 8px; }
+.replacement-pair .field { gap: 4px; }
+.replacement-pair .field input { min-height: 35px; padding: 0 8px; font-size: 12px; }
+.replacement-pair .replace-arrow { padding-bottom: 8px; color: var(--coral); text-align: center; }
+.replacement-add-button { display: inline-flex; min-height: 30px; align-items: center; gap: 6px; margin-top: 9px; }
+.child-title-preview { margin-top: 11px; padding: 10px 12px; border-left: 2px solid var(--coral); background: #f4f6f2; }
+.child-title-preview[hidden] { display: none; }
+.child-title-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 12px; color: var(--ink); font-size: 11px; }
+.child-title-heading > span, .child-title-feedback { color: var(--muted); font-size: 10px; }
+.child-title-feedback { margin: 5px 0 0; }
+.child-title-tree, .child-title-tree ul { margin: 7px 0 0; padding: 0; list-style: none; }
+.child-title-tree ul { margin: 2px 0 0 8px; padding-left: 10px; border-left: 1px solid #cbd5ce; }
+.child-title-row { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); align-items: start; gap: 5px; padding: 4px 0; font-size: 10px; line-height: 1.4; }
+.child-title-original, .child-title-replaced { min-width: 0; overflow-wrap: anywhere; }
+.child-title-original { color: var(--muted); }
+.child-title-arrow { color: var(--coral); text-align: center; }
+.child-title-replaced { color: var(--ink); font-weight: 650; }
 
 .action-row {
 	display: flex;
@@ -404,6 +437,7 @@ h2 { font-size: 1.08rem; }
 .security-note { gap: 8px; margin-top: 14px; padding: 9px 11px; }
 .security-note > span { width: 16px; height: 16px; flex-basis: 16px; font-size: .85rem; }
 .security-note p { font-size: .8rem; line-height: 1.4; }
+.tls-validation-warning { margin: 4px 0 0 21px; }
 .settings-actions { margin-top: 13px; }
 .footer { padding: 13px 2px 16px; font-size: .75rem; }
 
